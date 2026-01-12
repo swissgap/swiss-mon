@@ -4,6 +4,7 @@ import { StatCard } from './StatCard';
 import { TargetCard } from './TargetCard';
 import { SearchFilter } from './SearchFilter';
 import { CategoryChart } from './CategoryChart';
+import { LatestTargetsPanel } from './LatestTargetsPanel';
 import { Activity, CheckCircle, AlertTriangle, XCircle, Timer } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -127,6 +128,9 @@ export function Dashboard() {
 
           {/* Sidebar */}
           <aside className="space-y-6">
+            {/* Latest Targets Scan */}
+            <LatestTargetsPanel />
+
             <div className="rounded-xl border bg-card p-4 shadow-card">
               {loading ? (
                 <div className="space-y-3">
