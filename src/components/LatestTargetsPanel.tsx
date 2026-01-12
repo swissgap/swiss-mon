@@ -33,13 +33,38 @@ export function LatestTargetsPanel() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('https://witha.name/data/last.json');
-      if (!response.ok) throw new Error('Failed to fetch latest targets');
-      const data: LatestTargetsResponse = await response.json();
+      // Try multiple CORS proxies for reliability
+      const targetUrl = 'https://witha.name/data/last.json';
+      const proxies = [
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+      ];
+      
+      let data: LatestTargetsResponse | null = null;
+      let lastError: Error | null = null;
+      
+      for (const proxyUrl of proxies) {
+        try {
+          const response = await fetch(proxyUrl, { 
+            signal: AbortSignal.timeout(10000) 
+          });
+          if (response.ok) {
+            data = await response.json();
+            break;
+          }
+        } catch (e) {
+          lastError = e instanceof Error ? e : new Error('Unknown error');
+        }
+      }
+      
+      if (!data) {
+        throw lastError || new Error('All proxies failed');
+      }
+      
       setTargets(data.targets || []);
       setLastFetched(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : 'Unable to fetch data');
     } finally {
       setLoading(false);
     }
