@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface LatestTarget {
   target_id: string;
@@ -33,35 +34,14 @@ export function LatestTargetsPanel() {
     setLoading(true);
     setError(null);
     try {
-      // Try multiple CORS proxies for reliability
-      const targetUrl = 'https://witha.name/data/last.json';
-      const proxies = [
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-      ];
+      // Use our Edge Function to fetch external data (bypasses CORS)
+      const { data, error: fetchError } = await supabase.functions.invoke('fetch-latest-targets');
       
-      let data: LatestTargetsResponse | null = null;
-      let lastError: Error | null = null;
-      
-      for (const proxyUrl of proxies) {
-        try {
-          const response = await fetch(proxyUrl, { 
-            signal: AbortSignal.timeout(10000) 
-          });
-          if (response.ok) {
-            data = await response.json();
-            break;
-          }
-        } catch (e) {
-          lastError = e instanceof Error ? e : new Error('Unknown error');
-        }
+      if (fetchError) {
+        throw new Error(fetchError.message);
       }
       
-      if (!data) {
-        throw lastError || new Error('All proxies failed');
-      }
-      
-      setTargets(data.targets || []);
+      setTargets(data?.targets || []);
       setLastFetched(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to fetch data');
