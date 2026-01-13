@@ -1,13 +1,16 @@
 import { SwissFlag } from './SwissFlag';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 
 interface HeaderProps {
   onRefresh: () => void;
   lastUpdated?: Date;
+  isChecking?: boolean;
+  checkProgress?: number;
 }
 
-export function Header({ onRefresh, lastUpdated }: HeaderProps) {
+export function Header({ onRefresh, lastUpdated, isChecking, checkProgress = 0 }: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-xl">
       <div className="container flex h-16 items-center justify-between">
@@ -24,7 +27,15 @@ export function Header({ onRefresh, lastUpdated }: HeaderProps) {
         </div>
 
         <div className="flex items-center gap-4">
-          {lastUpdated && (
+          {isChecking && (
+            <div className="hidden sm:flex items-center gap-2 min-w-[150px]">
+              <Progress value={checkProgress} className="h-2 flex-1" />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {Math.round(checkProgress)}%
+              </span>
+            </div>
+          )}
+          {lastUpdated && !isChecking && (
             <span className="hidden sm:block text-xs text-muted-foreground">
               Updated: {lastUpdated.toLocaleTimeString('de-CH')}
             </span>
@@ -33,10 +44,17 @@ export function Header({ onRefresh, lastUpdated }: HeaderProps) {
             variant="outline"
             size="sm"
             onClick={onRefresh}
+            disabled={isChecking}
             className="gap-2"
           >
-            <RefreshCw className="h-4 w-4" />
-            <span className="hidden sm:inline">Refresh</span>
+            {isChecking ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">
+              {isChecking ? 'Scanning...' : 'Check Status'}
+            </span>
           </Button>
         </div>
       </div>
