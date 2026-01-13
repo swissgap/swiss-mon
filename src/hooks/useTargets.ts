@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Target, TargetWithStatus, StatusFilter } from '@/types/target';
 import { enrichTargets, calculateCategoryStats } from '@/lib/targetUtils';
+import { useRealStatusCheck } from './useRealStatusCheck';
 
 export function useTargets() {
   const [targets, setTargets] = useState<TargetWithStatus[]>([]);
@@ -9,6 +10,8 @@ export function useTargets() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  const { isChecking, progress, checkAllTargets } = useRealStatusCheck();
 
   // Load targets from JSON file
   useEffect(() => {
@@ -29,10 +32,17 @@ export function useTargets() {
     loadTargets();
   }, []);
 
-  // Refresh status simulation
-  const refreshStatus = () => {
-    setTargets(prev => enrichTargets(prev));
-  };
+  // Update handler for real status checks
+  const handleStatusUpdate = useCallback((updated: TargetWithStatus[]) => {
+    setTargets(updated);
+  }, []);
+
+  // Trigger real status check
+  const refreshStatus = useCallback(() => {
+    if (!isChecking && targets.length > 0) {
+      checkAllTargets(targets, handleStatusUpdate);
+    }
+  }, [targets, isChecking, checkAllTargets, handleStatusUpdate]);
 
   // Filter targets
   const filteredTargets = useMemo(() => {
@@ -96,5 +106,7 @@ export function useTargets() {
     categoryFilter,
     setCategoryFilter,
     refreshStatus,
+    isChecking,
+    checkProgress: progress,
   };
 }

@@ -24,6 +24,8 @@ export function Dashboard() {
     categoryFilter,
     setCategoryFilter,
     refreshStatus,
+    isChecking,
+    checkProgress,
   } = useTargets();
 
   if (error) {
@@ -42,7 +44,9 @@ export function Dashboard() {
     <div className="min-h-screen bg-background">
       <Header 
         onRefresh={refreshStatus} 
-        lastUpdated={allTargets[0]?.lastChecked} 
+        lastUpdated={allTargets[0]?.lastChecked}
+        isChecking={isChecking}
+        checkProgress={checkProgress}
       />
 
       <main className="container py-6 space-y-6">
