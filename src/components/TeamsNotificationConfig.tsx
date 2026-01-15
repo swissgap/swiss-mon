@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, BellRing, Settings2, Send, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { Bell, BellRing, Settings2, Send, Check, AlertCircle, Loader2, TestTube2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -43,6 +43,7 @@ export function TeamsNotificationConfig({ swissTargets = [], stats }: TeamsNotif
   const [webhookUrl, setWebhookUrl] = useState('');
   const [autoNotify, setAutoNotify] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [lastSent, setLastSent] = useState<Date | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -60,6 +61,65 @@ export function TeamsNotificationConfig({ swissTargets = [], stats }: TeamsNotif
   useEffect(() => {
     localStorage.setItem(AUTO_NOTIFY_KEY, String(autoNotify));
   }, [autoNotify]);
+
+  const testWebhook = async () => {
+    if (!webhookUrl) {
+      toast.error('Bitte MS Teams Webhook URL eingeben');
+      return;
+    }
+
+    setIsTesting(true);
+
+    try {
+      // Send a test message with dummy data
+      const testTargets: SwissTarget[] = [
+        {
+          host: 'test.example.ch',
+          ip: '192.168.1.1',
+          type: 'TEST',
+          method: 'GET',
+          port: 443,
+          use_ssl: true,
+          is_admin: false,
+        },
+        {
+          host: 'admin.ch',
+          ip: '10.0.0.1',
+          type: 'TEST',
+          method: 'GET',
+          port: 443,
+          use_ssl: true,
+          is_admin: true,
+        },
+      ];
+
+      const { data, error } = await supabase.functions.invoke('notify-teams', {
+        body: {
+          webhookUrl,
+          targets: testTargets,
+          stats: {
+            swiss_hosts: 2,
+            admin_hosts: 1,
+            total_requests: 2,
+          },
+          isTest: true,
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.sent) {
+        toast.success('✅ Test erfolgreich! Prüfen Sie Ihren Teams Channel.');
+      } else {
+        toast.error(data?.error || 'Test fehlgeschlagen');
+      }
+    } catch (err) {
+      console.error('Teams test error:', err);
+      toast.error('Webhook-Test fehlgeschlagen. Prüfen Sie die URL.');
+    } finally {
+      setIsTesting(false);
+    }
+  };
 
   const sendNotification = async () => {
     if (!webhookUrl) {
@@ -215,27 +275,49 @@ export function TeamsNotificationConfig({ swissTargets = [], stats }: TeamsNotif
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setIsOpen(false)}>
-            Schliessen
-          </Button>
+        <div className="flex flex-col gap-3">
+          {/* Test Button */}
           <Button
-            onClick={sendNotification}
-            disabled={!isConfigured || isSending || swissTargets.length === 0}
-            className="gap-2"
+            variant="outline"
+            onClick={testWebhook}
+            disabled={!isConfigured || isTesting}
+            className="w-full gap-2 border-dashed"
           >
-            {isSending ? (
+            {isTesting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Senden...
+                Teste Webhook...
               </>
             ) : (
               <>
-                <Send className="h-4 w-4" />
-                Jetzt senden
+                <TestTube2 className="h-4 w-4" />
+                Webhook testen
               </>
             )}
           </Button>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsOpen(false)}>
+              Schliessen
+            </Button>
+            <Button
+              onClick={sendNotification}
+              disabled={!isConfigured || isSending || swissTargets.length === 0}
+              className="gap-2"
+            >
+              {isSending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Senden...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4" />
+                  Jetzt senden
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
