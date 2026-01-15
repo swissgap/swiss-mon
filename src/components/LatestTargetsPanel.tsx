@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
+import { TeamsNotificationConfig } from './TeamsNotificationConfig';
 
 interface LatestTarget {
   target_id: string;
@@ -103,6 +104,22 @@ export function LatestTargetsPanel() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <TeamsNotificationConfig
+            swissTargets={data?.swiss_targets?.map(t => ({
+              host: t.host,
+              ip: t.ip,
+              type: t.type,
+              method: t.method,
+              port: t.port,
+              use_ssl: t.use_ssl,
+              is_admin: t.is_admin,
+            })) || []}
+            stats={stats ? {
+              swiss_hosts: stats.swiss_hosts,
+              admin_hosts: stats.admin_hosts,
+              total_requests: stats.swiss_requests,
+            } : undefined}
+          />
           <Button
             variant="ghost"
             size="icon"
