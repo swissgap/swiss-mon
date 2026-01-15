@@ -23,16 +23,19 @@ interface TeamsPayload {
     admin_hosts: number;
     total_requests: number;
   };
+  isTest?: boolean;
 }
 
-function createAdaptiveCard(targets: SwissTarget[], stats: TeamsPayload['stats']) {
-  const adminTargets = targets.filter(t => t.is_admin);
-  const regularSwiss = targets.filter(t => !t.is_admin);
-  
+function createAdaptiveCard(targets: SwissTarget[], stats: TeamsPayload['stats'], isTest: boolean = false) {
   const targetFacts = targets.slice(0, 10).map(t => ({
     title: t.is_admin ? `🛡️ ${t.host}` : `🇨🇭 ${t.host}`,
     value: `${t.ip || 'N/A'} | :${t.port} | ${t.type?.toUpperCase() || 'HTTP'}`
   }));
+
+  const titleText = isTest ? "🧪 SwissMon Test Notification" : "🚨 Swiss Target Alert";
+  const subtitleText = isTest 
+    ? "This is a test message - Webhook is working!" 
+    : `${stats.swiss_hosts} Swiss hosts detected`;
 
   return {
     type: "message",
@@ -47,7 +50,7 @@ function createAdaptiveCard(targets: SwissTarget[], stats: TeamsPayload['stats']
           body: [
             {
               type: "Container",
-              style: "emphasis",
+              style: isTest ? "default" : "emphasis",
               items: [
                 {
                   type: "ColumnSet",
@@ -70,14 +73,14 @@ function createAdaptiveCard(targets: SwissTarget[], stats: TeamsPayload['stats']
                       items: [
                         {
                           type: "TextBlock",
-                          text: "🚨 Swiss Target Alert",
+                          text: titleText,
                           weight: "Bolder",
                           size: "Large",
-                          color: "Attention"
+                          color: isTest ? "Good" : "Attention"
                         },
                         {
                           type: "TextBlock",
-                          text: `${stats.swiss_hosts} Swiss hosts detected`,
+                          text: subtitleText,
                           spacing: "None",
                           isSubtle: true
                         }
@@ -87,6 +90,24 @@ function createAdaptiveCard(targets: SwissTarget[], stats: TeamsPayload['stats']
                 }
               ]
             },
+            ...(isTest ? [{
+              type: "Container",
+              items: [
+                {
+                  type: "TextBlock",
+                  text: "✅ Your MS Teams webhook is correctly configured!",
+                  weight: "Bolder",
+                  color: "Good",
+                  wrap: true
+                },
+                {
+                  type: "TextBlock",
+                  text: `Test sent at: ${new Date().toLocaleString('de-CH')}`,
+                  isSubtle: true,
+                  size: "Small"
+                }
+              ]
+            }] : []),
             {
               type: "Container",
               items: [
@@ -114,7 +135,7 @@ function createAdaptiveCard(targets: SwissTarget[], stats: TeamsPayload['stats']
               items: [
                 {
                   type: "TextBlock",
-                  text: "Detected Targets",
+                  text: isTest ? "Sample Targets" : "Detected Targets",
                   weight: "Bolder",
                   size: "Medium",
                   spacing: "Medium"
@@ -151,7 +172,7 @@ serve(async (req) => {
   }
 
   try {
-    const { webhookUrl, targets, stats }: TeamsPayload = await req.json()
+    const { webhookUrl, targets, stats, isTest }: TeamsPayload = await req.json()
 
     if (!webhookUrl) {
       return new Response(
@@ -167,9 +188,9 @@ serve(async (req) => {
       )
     }
 
-    const card = createAdaptiveCard(targets, stats)
+    const card = createAdaptiveCard(targets, stats, isTest)
 
-    console.log('Sending MS Teams notification to webhook...')
+    console.log(`Sending MS Teams ${isTest ? 'TEST ' : ''}notification to webhook...`)
     
     const response = await fetch(webhookUrl, {
       method: 'POST',
