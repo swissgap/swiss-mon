@@ -1,1 +1,9 @@
 project_id = "rljjblcaikndrccnseuu"
+
+# Scheduled Swiss Target Scan
+# Runs twice daily at times when NoName057(16) typically publishes targets:
+# - 09:00 CET (08:00 UTC) - Morning scan
+# - 19:00 CET (18:00 UTC) - Evening scan
+[functions.scheduled-scan]
+verify_jwt = false
+schedule = "0 8,18 * * *"
