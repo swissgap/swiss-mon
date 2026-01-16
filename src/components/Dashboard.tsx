@@ -49,7 +49,24 @@ export function Dashboard() {
         checkProgress={checkProgress}
       />
 
-      <main className="container py-6 space-y-6">
+      <main className="container py-6 space-y-8">
+        {/* Swiss Target Scanner - Prominent Center Section */}
+        <section className="space-y-4">
+          <LatestTargetsPanel />
+        </section>
+
+        {/* Divider */}
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-4 text-muted-foreground font-medium">
+              Monitored Endpoints
+            </span>
+          </div>
+        </div>
+
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard
@@ -132,9 +149,6 @@ export function Dashboard() {
 
           {/* Sidebar */}
           <aside className="space-y-6">
-            {/* Latest Targets Scan */}
-            <LatestTargetsPanel />
-
             <div className="rounded-xl border bg-card p-4 shadow-card">
               {loading ? (
                 <div className="space-y-3">
