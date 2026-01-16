@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Radar, RefreshCw, ExternalLink, Globe, Wifi, WifiOff, ShieldCheck, Flag } from 'lucide-react';
+import { Radar, RefreshCw, ExternalLink, Globe, Wifi, WifiOff, ShieldCheck, Flag, Download, Clock, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { TeamsNotificationConfig } from './TeamsNotificationConfig';
+import { exportTargetsToCSV, formatTimestamp } from '@/lib/csvExport';
+import { useMonitoredTargets } from '@/hooks/useMonitoredTargets';
 
 interface LatestTarget {
   target_id: string;
@@ -21,6 +24,8 @@ interface LatestTarget {
   path?: string;
   is_swiss: boolean;
   is_admin: boolean;
+  status?: 'online' | 'offline' | 'warning' | 'unknown';
+  lastChecked?: Date;
 }
 
 interface ScanStats {
@@ -40,6 +45,41 @@ interface LatestTargetsResponse {
   fetched_at: string;
 }
 
+// Status indicator component
+function StatusBadge({ status }: { status?: 'online' | 'offline' | 'warning' | 'unknown' }) {
+  if (!status || status === 'unknown') {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger>
+            <span className="w-2 h-2 rounded-full bg-muted-foreground/30" />
+          </TooltipTrigger>
+          <TooltipContent>Status unbekannt</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+  
+  const config = {
+    online: { color: 'bg-status-online', icon: CheckCircle, label: 'Online' },
+    offline: { color: 'bg-status-offline', icon: XCircle, label: 'Offline' },
+    warning: { color: 'bg-status-warning', icon: AlertTriangle, label: 'Degraded' },
+  };
+  
+  const { color, label } = config[status];
+  
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger>
+          <span className={cn("w-2 h-2 rounded-full animate-pulse", color)} />
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 export function LatestTargetsPanel() {
   const [data, setData] = useState<LatestTargetsResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -47,6 +87,8 @@ export function LatestTargetsPanel() {
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const [isExpanded, setIsExpanded] = useState(true);
   const [activeTab, setActiveTab] = useState<'swiss' | 'all'>('swiss');
+
+  const { monitoredTargets, addSwissTargets, isChecking: isMonitorChecking } = useMonitoredTargets();
 
   const fetchLatestTargets = useCallback(async () => {
     setLoading(true);
@@ -60,28 +102,63 @@ export function LatestTargetsPanel() {
       
       setData(responseData);
       setLastFetched(new Date());
+      
+      // Auto-add Swiss targets to monitoring
+      if (responseData?.swiss_targets?.length > 0) {
+        const swissTargetsForMonitoring = responseData.swiss_targets.map((t: LatestTarget) => ({
+          host: t.host,
+          ip: t.ip,
+          type: t.type,
+          method: t.method,
+          port: t.port,
+          use_ssl: t.use_ssl,
+          is_admin: t.is_admin,
+          first_seen: responseData.fetched_at,
+        }));
+        addSwissTargets(swissTargetsForMonitoring);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to fetch data');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [addSwissTargets]);
 
   useEffect(() => {
     fetchLatestTargets();
   }, [fetchLatestTargets]);
 
+  // Handle CSV export
+  const handleExport = useCallback(() => {
+    const targetsToExport = activeTab === 'swiss' ? data?.swiss_targets : data?.targets;
+    if (!targetsToExport?.length) return;
+    
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const filename = `swiss_targets_${timestamp}.csv`;
+    exportTargetsToCSV(targetsToExport, filename);
+  }, [activeTab, data]);
+
   const targets = activeTab === 'swiss' ? (data?.swiss_targets || []) : (data?.targets || []);
   const stats = data?.stats;
 
+  // Merge with monitored targets to get real status
+  const targetsWithStatus = targets.map(target => {
+    const monitored = monitoredTargets.find(m => m.host.toLowerCase() === target.host.toLowerCase());
+    return {
+      ...target,
+      status: monitored?.status,
+      lastChecked: monitored?.lastChecked,
+    };
+  });
+
   // Group targets by host for cleaner display
-  const groupedTargets = targets.reduce((acc, target) => {
+  const groupedTargets = targetsWithStatus.reduce((acc, target) => {
     if (!acc[target.host]) {
       acc[target.host] = [];
     }
     acc[target.host].push(target);
     return acc;
-  }, {} as Record<string, LatestTarget[]>);
+  }, {} as Record<string, (LatestTarget & { status?: 'online' | 'offline' | 'warning' | 'unknown'; lastChecked?: Date })[]>);
 
   const uniqueHosts = Object.keys(groupedTargets);
 
@@ -120,6 +197,23 @@ export function LatestTargetsPanel() {
               total_requests: stats.swiss_requests,
             } : undefined}
           />
+          {/* CSV Export Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleExport}
+                  disabled={!data?.targets?.length}
+                  className="h-8 w-8"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>CSV Export</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Button
             variant="ghost"
             size="icon"
@@ -143,6 +237,21 @@ export function LatestTargetsPanel() {
 
       {isExpanded && (
         <>
+          {/* Timestamp Banner */}
+          {lastFetched && (
+            <div className="px-4 py-2 border-b bg-muted/20 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Clock className="h-3.5 w-3.5" />
+                <span>Letzter Angriff erkannt: <strong className="text-foreground">{formatTimestamp(lastFetched)}</strong></span>
+              </div>
+              {isMonitorChecking && (
+                <Badge variant="outline" className="text-[10px] animate-pulse">
+                  Prüfe Status...
+                </Badge>
+              )}
+            </div>
+          )}
+
           {/* Swiss Stats Banner */}
           {stats && stats.swiss_hosts > 0 && (
             <div className="px-4 py-3 border-b bg-gradient-to-r from-red-500/10 via-white/5 to-red-500/10">
@@ -157,6 +266,11 @@ export function LatestTargetsPanel() {
                   <span className="text-xs text-muted-foreground">
                     ({stats.swiss_requests} requests)
                   </span>
+                  {monitoredTargets.length > 0 && (
+                    <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">
+                      {monitoredTargets.length} überwacht
+                    </Badge>
+                  )}
                 </div>
                 {stats.admin_hosts > 0 && (
                   <div className="flex items-center gap-1.5">
@@ -246,6 +360,9 @@ export function LatestTargetsPanel() {
                             isAdmin && "bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/20"
                           )}
                         >
+                          {/* Status Indicator */}
+                          <StatusBadge status={firstTarget.status} />
+
                           <div className={cn(
                             "flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center",
                             isAdmin 
@@ -302,6 +419,15 @@ export function LatestTargetsPanel() {
                               <span className="font-mono">{firstTarget.ip || 'N/A'}</span>
                               <span>•</span>
                               <span>:{firstTarget.port}</span>
+                              {firstTarget.lastChecked && (
+                                <>
+                                  <span>•</span>
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    {formatTimestamp(firstTarget.lastChecked)}
+                                  </span>
+                                </>
+                              )}
                             </div>
                           </div>
 
