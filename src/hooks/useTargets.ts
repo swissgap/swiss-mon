@@ -44,9 +44,9 @@ export function useTargets() {
     }
   }, [targets, isChecking, checkAllTargets, handleStatusUpdate]);
 
-  // Filter targets
+  // Filter and sort targets
   const filteredTargets = useMemo(() => {
-    return targets.filter(target => {
+    const filtered = targets.filter(target => {
       // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
@@ -69,6 +69,10 @@ export function useTargets() {
 
       return true;
     });
+
+    // Sort by status: offline first, warning second, online last
+    const statusOrder = { offline: 0, warning: 1, online: 2 };
+    return filtered.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
   }, [targets, searchQuery, statusFilter, categoryFilter]);
 
   // Statistics

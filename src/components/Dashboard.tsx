@@ -55,17 +55,23 @@ export function Dashboard() {
           <LatestTargetsPanel />
         </section>
 
-        {/* Divider */}
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
+        {/* Monitored Endpoints Section */}
+        <section className="space-y-4">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-4 text-muted-foreground font-medium">
+                Monitored Endpoints
+              </span>
+            </div>
           </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-4 text-muted-foreground font-medium">
-              Monitored Endpoints
-            </span>
-          </div>
-        </div>
+          <p className="text-center text-sm text-muted-foreground max-w-2xl mx-auto">
+            Historische Übersicht aller jemals von NoName057(16) angegriffenen Schweizer Ziele. 
+            Der Status zeigt die aktuelle Erreichbarkeit der Infrastruktur.
+          </p>
+        </section>
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
