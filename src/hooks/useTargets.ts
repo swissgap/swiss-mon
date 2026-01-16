@@ -3,6 +3,9 @@ import type { Target, TargetWithStatus, StatusFilter } from '@/types/target';
 import { enrichTargets, calculateCategoryStats } from '@/lib/targetUtils';
 import { useRealStatusCheck } from './useRealStatusCheck';
 
+// Storage key for monitored Swiss targets
+const MONITORED_TARGETS_KEY = 'swissmon_monitored_targets';
+
 export function useTargets() {
   const [targets, setTargets] = useState<TargetWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
@@ -13,7 +16,7 @@ export function useTargets() {
 
   const { isChecking, progress, checkAllTargets } = useRealStatusCheck();
 
-  // Load targets from JSON file
+  // Load targets from JSON file and merge with monitored targets
   useEffect(() => {
     async function loadTargets() {
       try {
@@ -21,6 +24,28 @@ export function useTargets() {
         if (!response.ok) throw new Error('Failed to load targets');
         const data: Target[] = await response.json();
         const enrichedTargets = enrichTargets(data);
+        
+        // Merge with monitored targets from localStorage
+        const storedMonitored = localStorage.getItem(MONITORED_TARGETS_KEY);
+        if (storedMonitored) {
+          try {
+            const monitored = JSON.parse(storedMonitored) as TargetWithStatus[];
+            const existingHosts = new Set(enrichedTargets.map(t => t.host.toLowerCase()));
+            
+            // Add new monitored targets that aren't in the historical data
+            for (const mt of monitored) {
+              if (!existingHosts.has(mt.host.toLowerCase())) {
+                enrichedTargets.push({
+                  ...mt,
+                  lastChecked: new Date(mt.lastChecked),
+                });
+              }
+            }
+          } catch (e) {
+            console.error('Failed to parse monitored targets:', e);
+          }
+        }
+        
         setTargets(enrichedTargets);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
