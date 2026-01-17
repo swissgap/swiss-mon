@@ -7,3 +7,6 @@ project_id = "rljjblcaikndrccnseuu"
 [functions.scheduled-scan]
 verify_jwt = false
 schedule = "0 8,18 * * *"
+
+[functions.notify-telegram]
+verify_jwt = false
