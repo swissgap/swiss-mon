@@ -16,6 +16,7 @@ interface SwissTarget {
 }
 
 interface TelegramPayload {
+  botToken?: string;
   chatId: string;
   targets: SwissTarget[];
   stats: {
@@ -76,15 +77,16 @@ serve(async (req) => {
   }
 
   try {
-    const { chatId, targets, stats, isTest }: TelegramPayload = await req.json()
+    const { botToken: clientBotToken, chatId, targets, stats, isTest }: TelegramPayload = await req.json()
     
-    const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN')
+    // Use client-provided token, or fall back to environment variable
+    const botToken = clientBotToken || Deno.env.get('TELEGRAM_BOT_TOKEN')
     
     if (!botToken) {
-      console.error('TELEGRAM_BOT_TOKEN not configured')
+      console.error('No Telegram bot token provided')
       return new Response(
-        JSON.stringify({ error: 'Telegram Bot Token not configured in backend' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'Telegram Bot Token nicht konfiguriert. Bitte Token eingeben.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
