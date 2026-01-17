@@ -39,6 +39,8 @@ interface NotificationConfigProps {
 
 const TEAMS_WEBHOOK_KEY = 'swissmon_teams_webhook';
 const TEAMS_AUTO_NOTIFY_KEY = 'swissmon_teams_auto_notify';
+const TELEGRAM_BOT_TOKEN_KEY = 'swissmon_telegram_bot_token';
+const TELEGRAM_BOT_NAME_KEY = 'swissmon_telegram_bot_name';
 const TELEGRAM_CHAT_ID_KEY = 'swissmon_telegram_chat_id';
 const TELEGRAM_AUTO_NOTIFY_KEY = 'swissmon_telegram_auto_notify';
 
@@ -51,6 +53,8 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
   const [teamsLastSent, setTeamsLastSent] = useState<Date | null>(null);
 
   // Telegram state
+  const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [telegramBotName, setTelegramBotName] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [telegramAutoNotify, setTelegramAutoNotify] = useState(false);
   const [isTelegramSending, setIsTelegramSending] = useState(false);
@@ -63,11 +67,15 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
   useEffect(() => {
     const savedTeamsUrl = localStorage.getItem(TEAMS_WEBHOOK_KEY);
     const savedTeamsAutoNotify = localStorage.getItem(TEAMS_AUTO_NOTIFY_KEY);
+    const savedTelegramBotToken = localStorage.getItem(TELEGRAM_BOT_TOKEN_KEY);
+    const savedTelegramBotName = localStorage.getItem(TELEGRAM_BOT_NAME_KEY);
     const savedTelegramChatId = localStorage.getItem(TELEGRAM_CHAT_ID_KEY);
     const savedTelegramAutoNotify = localStorage.getItem(TELEGRAM_AUTO_NOTIFY_KEY);
     
     if (savedTeamsUrl) setTeamsWebhookUrl(savedTeamsUrl);
     if (savedTeamsAutoNotify) setTeamsAutoNotify(savedTeamsAutoNotify === 'true');
+    if (savedTelegramBotToken) setTelegramBotToken(savedTelegramBotToken);
+    if (savedTelegramBotName) setTelegramBotName(savedTelegramBotName);
     if (savedTelegramChatId) setTelegramChatId(savedTelegramChatId);
     if (savedTelegramAutoNotify) setTelegramAutoNotify(savedTelegramAutoNotify === 'true');
   }, []);
@@ -80,6 +88,14 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
   useEffect(() => {
     localStorage.setItem(TEAMS_AUTO_NOTIFY_KEY, String(teamsAutoNotify));
   }, [teamsAutoNotify]);
+
+  useEffect(() => {
+    localStorage.setItem(TELEGRAM_BOT_TOKEN_KEY, telegramBotToken);
+  }, [telegramBotToken]);
+
+  useEffect(() => {
+    localStorage.setItem(TELEGRAM_BOT_NAME_KEY, telegramBotName);
+  }, [telegramBotName]);
 
   useEffect(() => {
     localStorage.setItem(TELEGRAM_CHAT_ID_KEY, telegramChatId);
@@ -162,8 +178,12 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
 
   // Telegram functions
   const testTelegramWebhook = async () => {
+    if (!telegramBotToken) {
+      toast.error('Bitte Bot Token eingeben');
+      return;
+    }
     if (!telegramChatId) {
-      toast.error('Bitte Telegram Chat ID eingeben');
+      toast.error('Bitte Chat ID eingeben');
       return;
     }
 
@@ -177,6 +197,7 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
 
       const { data, error } = await supabase.functions.invoke('notify-telegram', {
         body: {
+          botToken: telegramBotToken,
           chatId: telegramChatId,
           targets: testTargets,
           stats: { swiss_hosts: 2, admin_hosts: 1, total_requests: 2 },
@@ -207,6 +228,7 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
     try {
       const { data, error } = await supabase.functions.invoke('notify-telegram', {
         body: {
+          botToken: telegramBotToken,
           chatId: telegramChatId,
           targets: swissTargets,
           stats: {
@@ -232,7 +254,7 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
   };
 
   const isTeamsConfigured = teamsWebhookUrl.startsWith('https://');
-  const isTelegramConfigured = telegramChatId.length > 0;
+  const isTelegramConfigured = telegramBotToken.length > 0 && telegramChatId.length > 0;
   const isAnyConfigured = isTeamsConfigured || isTelegramConfigured;
 
   return (
@@ -381,6 +403,36 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
           {/* Telegram Tab */}
           <TabsContent value="telegram" className="space-y-4 mt-4">
             <div className="space-y-2">
+              <Label htmlFor="telegram-bot-token">Bot Token</Label>
+              <Input
+                id="telegram-bot-token"
+                type="password"
+                placeholder="z.B. 8502308757:AAFTrGz..."
+                value={telegramBotToken}
+                onChange={(e) => setTelegramBotToken(e.target.value)}
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                API Token vom BotFather
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="telegram-bot-name">Bot Name (optional)</Label>
+              <Input
+                id="telegram-bot-name"
+                type="text"
+                placeholder="z.B. @gapMon_bot"
+                value={telegramBotName}
+                onChange={(e) => setTelegramBotName(e.target.value)}
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Name des Bots zur Referenz
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="telegram-chat-id">Chat ID</Label>
               <Input
                 id="telegram-chat-id"
@@ -391,7 +443,7 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                Ihre Telegram Chat ID. Bot: @gapMon_bot
+                Ihre Telegram Chat ID{telegramBotName && ` • Bot: ${telegramBotName}`}
               </p>
             </div>
 
