@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
-import { TeamsNotificationConfig } from './TeamsNotificationConfig';
+import { NotificationConfig } from './NotificationConfig';
 import { exportTargetsToCSV, formatTimestamp } from '@/lib/csvExport';
 import { useMonitoredTargets } from '@/hooks/useMonitoredTargets';
 
@@ -181,7 +181,7 @@ export function LatestTargetsPanel() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <TeamsNotificationConfig
+          <NotificationConfig
             swissTargets={data?.swiss_targets?.map(t => ({
               host: t.host,
               ip: t.ip,
