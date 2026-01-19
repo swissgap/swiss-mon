@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -37,8 +38,20 @@ interface ScanResult {
     swiss_hosts: number;
     admin_hosts: number;
   };
-  notification_sent: boolean;
-  notification_error?: string;
+  notifications: {
+    teams_sent: boolean;
+    teams_error?: string;
+    telegram_sent: boolean;
+    telegram_error?: string;
+  };
+}
+
+interface NotificationSettings {
+  teams_webhook_url?: string;
+  teams_auto_notify?: boolean;
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
+  telegram_auto_notify?: boolean;
 }
 
 function parseHost(targetUrl: string): { host: string; port: number; use_ssl: boolean } {
@@ -198,6 +211,117 @@ async function sendTeamsNotification(
   }
 }
 
+async function sendTelegramNotification(
+  botToken: string,
+  chatId: string,
+  targets: ParsedTarget[],
+  stats: ScanResult['stats']
+): Promise<{ sent: boolean; error?: string }> {
+  try {
+    const swissHosts = targets.filter(t => !t.is_admin).slice(0, 10);
+    const adminHosts = targets.filter(t => t.is_admin).slice(0, 5);
+    
+    let message = `🔄 <b>Scheduled Swiss Target Scan</b>\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📊 <b>Statistiken:</b>\n`;
+    message += `├ 🇨🇭 Swiss Hosts: <code>${stats.swiss_hosts}</code>\n`;
+    message += `├ 🛡️ Admin.ch Hosts: <code>${stats.admin_hosts}</code>\n`;
+    message += `└ 📈 Total Scanned: <code>${stats.total_requests}</code>\n\n`;
+    
+    if (adminHosts.length > 0) {
+      message += `🛡️ <b>Admin.ch Targets:</b>\n`;
+      adminHosts.forEach((t, i) => {
+        const prefix = i === adminHosts.length - 1 ? '└' : '├';
+        message += `${prefix} <code>${t.host}</code>\n`;
+        message += `   ${t.ip || 'N/A'} | :${t.port}\n`;
+      });
+      message += `\n`;
+    }
+    
+    if (swissHosts.length > 0) {
+      message += `🇨🇭 <b>Swiss Targets:</b>\n`;
+      swissHosts.forEach((t, i) => {
+        const prefix = i === swissHosts.length - 1 ? '└' : '├';
+        message += `${prefix} <code>${t.host}</code>\n`;
+      });
+      
+      if (targets.length > 15) {
+        message += `\n<i>... und ${targets.length - 15} weitere</i>\n`;
+      }
+    }
+    
+    message += `\n⏰ ${new Date().toLocaleString('de-CH', { timeZone: 'Europe/Zurich' })}`;
+    
+    const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    
+    const response = await fetch(telegramUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      }),
+    });
+
+    const responseData = await response.json();
+
+    if (!response.ok || !responseData.ok) {
+      return { 
+        sent: false, 
+        error: responseData.description || `Telegram API error: ${response.status}` 
+      };
+    }
+
+    return { sent: true };
+  } catch (error) {
+    return { sent: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+async function getNotificationSettings(supabaseUrl: string, supabaseKey: string): Promise<NotificationSettings> {
+  try {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .select('setting_key, setting_value, is_enabled');
+
+    if (error) {
+      console.error('Error fetching notification settings:', error);
+      return {};
+    }
+
+    const settings: NotificationSettings = {};
+    
+    for (const row of data || []) {
+      switch (row.setting_key) {
+        case 'teams_webhook_url':
+          settings.teams_webhook_url = row.setting_value || undefined;
+          break;
+        case 'teams_auto_notify':
+          settings.teams_auto_notify = row.setting_value === 'true' && row.is_enabled;
+          break;
+        case 'telegram_bot_token':
+          settings.telegram_bot_token = row.setting_value || undefined;
+          break;
+        case 'telegram_chat_id':
+          settings.telegram_chat_id = row.setting_value || undefined;
+          break;
+        case 'telegram_auto_notify':
+          settings.telegram_auto_notify = row.setting_value === 'true' && row.is_enabled;
+          break;
+      }
+    }
+
+    return settings;
+  } catch (error) {
+    console.error('Error in getNotificationSettings:', error);
+    return {};
+  }
+}
+
 serve(async (req) => {
   // Handle CORS
   if (req.method === 'OPTIONS') {
@@ -208,11 +332,28 @@ serve(async (req) => {
   console.log(`[${scanTime}] Starting scheduled Swiss target scan...`);
 
   try {
-    // Parse optional webhook URL from request body (for manual triggers)
-    let webhookUrl: string | null = null;
+    // Get Supabase credentials from environment
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Missing Supabase credentials');
+    }
+
+    // Get notification settings from database
+    const settings = await getNotificationSettings(supabaseUrl, supabaseKey);
+    console.log(`[${scanTime}] Loaded notification settings - Teams auto: ${settings.teams_auto_notify}, Telegram auto: ${settings.telegram_auto_notify}`);
+
+    // Parse optional overrides from request body (for manual triggers)
+    let manualWebhookUrl: string | null = null;
+    let manualTelegramToken: string | null = null;
+    let manualTelegramChatId: string | null = null;
+    
     try {
       const body = await req.json();
-      webhookUrl = body?.webhookUrl || null;
+      manualWebhookUrl = body?.webhookUrl || null;
+      manualTelegramToken = body?.telegramBotToken || null;
+      manualTelegramChatId = body?.telegramChatId || null;
     } catch {
       // No body or invalid JSON - that's fine for cron triggers
     }
@@ -269,20 +410,46 @@ serve(async (req) => {
 
     console.log(`[${scanTime}] Scan complete: ${stats.swiss_hosts} Swiss hosts, ${stats.admin_hosts} admin.ch hosts`);
 
-    // Send notification if webhook URL provided and Swiss targets found
-    let notificationSent = false;
-    let notificationError: string | undefined;
+    // Initialize notification results
+    const notifications = {
+      teams_sent: false,
+      teams_error: undefined as string | undefined,
+      telegram_sent: false,
+      telegram_error: undefined as string | undefined,
+    };
 
-    if (webhookUrl && swissTargets.length > 0) {
-      console.log(`[${scanTime}] Sending Teams notification...`);
-      const result = await sendTeamsNotification(webhookUrl, swissTargets, stats);
-      notificationSent = result.sent;
-      notificationError = result.error;
+    // Only send notifications if Swiss targets were found
+    if (swissTargets.length > 0) {
+      // Send Teams notification if enabled
+      const teamsWebhook = manualWebhookUrl || (settings.teams_auto_notify ? settings.teams_webhook_url : null);
+      if (teamsWebhook) {
+        console.log(`[${scanTime}] Sending Teams notification...`);
+        const teamsResult = await sendTeamsNotification(teamsWebhook, swissTargets, stats);
+        notifications.teams_sent = teamsResult.sent;
+        notifications.teams_error = teamsResult.error;
+        
+        if (teamsResult.sent) {
+          console.log(`[${scanTime}] Teams notification sent successfully`);
+        } else {
+          console.error(`[${scanTime}] Teams notification failed: ${teamsResult.error}`);
+        }
+      }
+
+      // Send Telegram notification if enabled
+      const telegramToken = manualTelegramToken || (settings.telegram_auto_notify ? settings.telegram_bot_token : null);
+      const telegramChatId = manualTelegramChatId || (settings.telegram_auto_notify ? settings.telegram_chat_id : null);
       
-      if (result.sent) {
-        console.log(`[${scanTime}] Teams notification sent successfully`);
-      } else {
-        console.error(`[${scanTime}] Teams notification failed: ${result.error}`);
+      if (telegramToken && telegramChatId) {
+        console.log(`[${scanTime}] Sending Telegram notification...`);
+        const telegramResult = await sendTelegramNotification(telegramToken, telegramChatId, swissTargets, stats);
+        notifications.telegram_sent = telegramResult.sent;
+        notifications.telegram_error = telegramResult.error;
+        
+        if (telegramResult.sent) {
+          console.log(`[${scanTime}] Telegram notification sent successfully`);
+        } else {
+          console.error(`[${scanTime}] Telegram notification failed: ${telegramResult.error}`);
+        }
       }
     }
 
@@ -290,8 +457,7 @@ serve(async (req) => {
       scan_time: scanTime,
       swiss_targets: swissTargets,
       stats,
-      notification_sent: notificationSent,
-      notification_error: notificationError,
+      notifications,
     };
 
     return new Response(JSON.stringify(scanResult), {
@@ -308,7 +474,10 @@ serve(async (req) => {
         scan_time: scanTime,
         swiss_targets: [],
         stats: { total_requests: 0, swiss_hosts: 0, admin_hosts: 0 },
-        notification_sent: false,
+        notifications: {
+          teams_sent: false,
+          telegram_sent: false,
+        },
       }),
       {
         status: 500,

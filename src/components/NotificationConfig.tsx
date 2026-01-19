@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Bell, BellRing, Send, Check, AlertCircle, Loader2, TestTube2, MessageCircle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Bell, BellRing, Send, Check, AlertCircle, Loader2, TestTube2, MessageCircle, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,12 +37,19 @@ interface NotificationConfigProps {
   };
 }
 
-const TEAMS_WEBHOOK_KEY = 'swissmon_teams_webhook';
-const TEAMS_AUTO_NOTIFY_KEY = 'swissmon_teams_auto_notify';
-const TELEGRAM_BOT_TOKEN_KEY = 'swissmon_telegram_bot_token';
-const TELEGRAM_BOT_NAME_KEY = 'swissmon_telegram_bot_name';
-const TELEGRAM_CHAT_ID_KEY = 'swissmon_telegram_chat_id';
-const TELEGRAM_AUTO_NOTIFY_KEY = 'swissmon_telegram_auto_notify';
+type SettingKey = 
+  | 'teams_webhook_url' 
+  | 'teams_auto_notify' 
+  | 'telegram_bot_token' 
+  | 'telegram_bot_name' 
+  | 'telegram_chat_id' 
+  | 'telegram_auto_notify';
+
+interface NotificationSetting {
+  setting_key: SettingKey;
+  setting_value: string | null;
+  is_enabled: boolean;
+}
 
 export function NotificationConfig({ swissTargets = [], stats }: NotificationConfigProps) {
   // Teams state
@@ -62,48 +69,89 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
   const [telegramLastSent, setTelegramLastSent] = useState<Date | null>(null);
 
   const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Load saved settings
-  useEffect(() => {
-    const savedTeamsUrl = localStorage.getItem(TEAMS_WEBHOOK_KEY);
-    const savedTeamsAutoNotify = localStorage.getItem(TEAMS_AUTO_NOTIFY_KEY);
-    const savedTelegramBotToken = localStorage.getItem(TELEGRAM_BOT_TOKEN_KEY);
-    const savedTelegramBotName = localStorage.getItem(TELEGRAM_BOT_NAME_KEY);
-    const savedTelegramChatId = localStorage.getItem(TELEGRAM_CHAT_ID_KEY);
-    const savedTelegramAutoNotify = localStorage.getItem(TELEGRAM_AUTO_NOTIFY_KEY);
-    
-    if (savedTeamsUrl) setTeamsWebhookUrl(savedTeamsUrl);
-    if (savedTeamsAutoNotify) setTeamsAutoNotify(savedTeamsAutoNotify === 'true');
-    if (savedTelegramBotToken) setTelegramBotToken(savedTelegramBotToken);
-    if (savedTelegramBotName) setTelegramBotName(savedTelegramBotName);
-    if (savedTelegramChatId) setTelegramChatId(savedTelegramChatId);
-    if (savedTelegramAutoNotify) setTelegramAutoNotify(savedTelegramAutoNotify === 'true');
+  // Load settings from database
+  const loadSettings = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('notification_settings')
+        .select('setting_key, setting_value, is_enabled');
+
+      if (error) throw error;
+
+      const settings = data as NotificationSetting[];
+      
+      settings.forEach((setting) => {
+        switch (setting.setting_key) {
+          case 'teams_webhook_url':
+            setTeamsWebhookUrl(setting.setting_value || '');
+            break;
+          case 'teams_auto_notify':
+            setTeamsAutoNotify(setting.setting_value === 'true');
+            break;
+          case 'telegram_bot_token':
+            setTelegramBotToken(setting.setting_value || '');
+            break;
+          case 'telegram_bot_name':
+            setTelegramBotName(setting.setting_value || '');
+            break;
+          case 'telegram_chat_id':
+            setTelegramChatId(setting.setting_value || '');
+            break;
+          case 'telegram_auto_notify':
+            setTelegramAutoNotify(setting.setting_value === 'true');
+            break;
+        }
+      });
+    } catch (err) {
+      console.error('Error loading settings:', err);
+      toast.error('Fehler beim Laden der Einstellungen');
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  // Save settings
   useEffect(() => {
-    localStorage.setItem(TEAMS_WEBHOOK_KEY, teamsWebhookUrl);
-  }, [teamsWebhookUrl]);
+    loadSettings();
+  }, [loadSettings]);
 
-  useEffect(() => {
-    localStorage.setItem(TEAMS_AUTO_NOTIFY_KEY, String(teamsAutoNotify));
-  }, [teamsAutoNotify]);
+  // Save a single setting to database
+  const saveSetting = async (key: SettingKey, value: string, isEnabled: boolean = true) => {
+    try {
+      const { error } = await supabase
+        .from('notification_settings')
+        .update({ setting_value: value, is_enabled: isEnabled })
+        .eq('setting_key', key);
 
-  useEffect(() => {
-    localStorage.setItem(TELEGRAM_BOT_TOKEN_KEY, telegramBotToken);
-  }, [telegramBotToken]);
+      if (error) throw error;
+    } catch (err) {
+      console.error(`Error saving ${key}:`, err);
+    }
+  };
 
-  useEffect(() => {
-    localStorage.setItem(TELEGRAM_BOT_NAME_KEY, telegramBotName);
-  }, [telegramBotName]);
-
-  useEffect(() => {
-    localStorage.setItem(TELEGRAM_CHAT_ID_KEY, telegramChatId);
-  }, [telegramChatId]);
-
-  useEffect(() => {
-    localStorage.setItem(TELEGRAM_AUTO_NOTIFY_KEY, String(telegramAutoNotify));
-  }, [telegramAutoNotify]);
+  // Save all settings
+  const saveAllSettings = async () => {
+    setIsSaving(true);
+    try {
+      await Promise.all([
+        saveSetting('teams_webhook_url', teamsWebhookUrl, teamsWebhookUrl.startsWith('https://')),
+        saveSetting('teams_auto_notify', String(teamsAutoNotify), teamsAutoNotify),
+        saveSetting('telegram_bot_token', telegramBotToken, telegramBotToken.length > 0),
+        saveSetting('telegram_bot_name', telegramBotName, telegramBotName.length > 0),
+        saveSetting('telegram_chat_id', telegramChatId, telegramChatId.length > 0),
+        saveSetting('telegram_auto_notify', String(telegramAutoNotify), telegramAutoNotify),
+      ]);
+      toast.success('Einstellungen gespeichert');
+    } catch (err) {
+      console.error('Error saving settings:', err);
+      toast.error('Fehler beim Speichern der Einstellungen');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Teams functions
   const testTeamsWebhook = async () => {
@@ -133,6 +181,7 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
 
       if (data?.sent) {
         toast.success('✅ Teams Test erfolgreich! Prüfen Sie Ihren Channel.');
+        await saveSetting('teams_webhook_url', teamsWebhookUrl, true);
       } else {
         toast.error(data?.error || 'Test fehlgeschlagen');
       }
@@ -209,6 +258,11 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
 
       if (data?.sent) {
         toast.success('✅ Telegram Test erfolgreich! Prüfen Sie Ihren Chat.');
+        await Promise.all([
+          saveSetting('telegram_bot_token', telegramBotToken, true),
+          saveSetting('telegram_chat_id', telegramChatId, true),
+          saveSetting('telegram_bot_name', telegramBotName, telegramBotName.length > 0),
+        ]);
       } else {
         toast.error(data?.error || 'Test fehlgeschlagen');
       }
@@ -289,232 +343,258 @@ export function NotificationConfig({ swissTargets = [], stats }: NotificationCon
               <Bell className="w-5 h-5 text-primary-foreground" />
             </div>
             Benachrichtigungen
+            <Badge variant="outline" className="ml-2 gap-1 text-xs">
+              <Database className="h-3 w-3" />
+              Persistent
+            </Badge>
           </DialogTitle>
           <DialogDescription>
-            Erhalten Sie Alerts wenn Swiss (.ch) oder admin.ch Targets gefunden werden.
+            Erhalten Sie Alerts wenn Swiss (.ch) oder admin.ch Targets gefunden werden. Einstellungen werden in der Datenbank gespeichert.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="teams" className="mt-4">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="teams" className="gap-2">
-              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-                <path d="M19.35 8.07c-.36-1.7-1.31-3.21-2.7-4.27A7.07 7.07 0 0012.03 2c-2.61 0-4.91 1.43-6.14 3.55a5.97 5.97 0 00-4.64 5.4A5.96 5.96 0 003 16.78 5.96 5.96 0 008.96 22h9.18a5.86 5.86 0 005.61-4.15 5.86 5.86 0 00-4.4-9.78z"/>
-              </svg>
-              MS Teams
-              {isTeamsConfigured && <Check className="w-3 h-3 text-green-500" />}
-            </TabsTrigger>
-            <TabsTrigger value="telegram" className="gap-2">
-              <MessageCircle className="w-4 h-4" />
-              Telegram
-              {isTelegramConfigured && <Check className="w-3 h-3 text-green-500" />}
-            </TabsTrigger>
-          </TabsList>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-muted-foreground">Lade Einstellungen...</span>
+          </div>
+        ) : (
+          <Tabs defaultValue="teams" className="mt-4">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="teams" className="gap-2">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+                  <path d="M19.35 8.07c-.36-1.7-1.31-3.21-2.7-4.27A7.07 7.07 0 0012.03 2c-2.61 0-4.91 1.43-6.14 3.55a5.97 5.97 0 00-4.64 5.4A5.96 5.96 0 003 16.78 5.96 5.96 0 008.96 22h9.18a5.86 5.86 0 005.61-4.15 5.86 5.86 0 00-4.4-9.78z"/>
+                </svg>
+                MS Teams
+                {isTeamsConfigured && <Check className="w-3 h-3 text-green-500" />}
+              </TabsTrigger>
+              <TabsTrigger value="telegram" className="gap-2">
+                <MessageCircle className="w-4 h-4" />
+                Telegram
+                {isTelegramConfigured && <Check className="w-3 h-3 text-green-500" />}
+              </TabsTrigger>
+            </TabsList>
 
-          {/* MS Teams Tab */}
-          <TabsContent value="teams" className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <Label htmlFor="teams-webhook-url">Webhook URL</Label>
-              <Input
-                id="teams-webhook-url"
-                type="url"
-                placeholder="https://outlook.office.com/webhook/..."
-                value={teamsWebhookUrl}
-                onChange={(e) => setTeamsWebhookUrl(e.target.value)}
-                className="font-mono text-sm"
-              />
-              <p className="text-xs text-muted-foreground">
-                Erstellen Sie einen Incoming Webhook in Ihrem MS Teams Channel.
-                <a 
-                  href="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-1 text-primary hover:underline"
+            {/* MS Teams Tab */}
+            <TabsContent value="teams" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="teams-webhook-url">Webhook URL</Label>
+                <Input
+                  id="teams-webhook-url"
+                  type="url"
+                  placeholder="https://outlook.office.com/webhook/..."
+                  value={teamsWebhookUrl}
+                  onChange={(e) => setTeamsWebhookUrl(e.target.value)}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Erstellen Sie einen Incoming Webhook in Ihrem MS Teams Channel.
+                  <a 
+                    href="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-1 text-primary hover:underline"
+                  >
+                    Anleitung →
+                  </a>
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium">Auto-Benachrichtigung</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Automatisch benachrichtigen bei neuen Targets
+                  </p>
+                </div>
+                <Switch
+                  checked={teamsAutoNotify}
+                  onCheckedChange={(checked) => {
+                    setTeamsAutoNotify(checked);
+                    saveSetting('teams_auto_notify', String(checked), checked);
+                  }}
+                  disabled={!isTeamsConfigured}
+                />
+              </div>
+
+              <div className="rounded-lg bg-muted/50 p-3 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Status</span>
+                  {isTeamsConfigured ? (
+                    <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
+                      <Check className="h-3 w-3 mr-1" />
+                      Konfiguriert
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
+                      <AlertCircle className="h-3 w-3 mr-1" />
+                      Nicht konfiguriert
+                    </Badge>
+                  )}
+                </div>
+                {teamsLastSent && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Zuletzt gesendet</span>
+                    <span className="text-xs">{teamsLastSent.toLocaleTimeString('de-CH')}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  onClick={testTeamsWebhook}
+                  disabled={!isTeamsConfigured || isTeamsTesting}
+                  className="w-full gap-2 border-dashed"
                 >
-                  Anleitung →
-                </a>
-              </p>
-            </div>
+                  {isTeamsTesting ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" />Teste Webhook...</>
+                  ) : (
+                    <><TestTube2 className="h-4 w-4" />Webhook testen</>
+                  )}
+                </Button>
+                <Button
+                  onClick={sendTeamsNotification}
+                  disabled={!isTeamsConfigured || isTeamsSending || swissTargets.length === 0}
+                  className="gap-2"
+                >
+                  {isTeamsSending ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" />Senden...</>
+                  ) : (
+                    <><Send className="h-4 w-4" />Jetzt senden ({swissTargets.length} Targets)</>
+                  )}
+                </Button>
+              </div>
+            </TabsContent>
 
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div className="space-y-0.5">
-                <Label className="text-sm font-medium">Auto-Benachrichtigung</Label>
+            {/* Telegram Tab */}
+            <TabsContent value="telegram" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="telegram-bot-token">Bot Token</Label>
+                <Input
+                  id="telegram-bot-token"
+                  type="password"
+                  placeholder="z.B. 8502308757:AAFTrGz..."
+                  value={telegramBotToken}
+                  onChange={(e) => setTelegramBotToken(e.target.value)}
+                  className="font-mono text-sm"
+                />
                 <p className="text-xs text-muted-foreground">
-                  Automatisch benachrichtigen bei neuen Targets
+                  API Token vom BotFather
                 </p>
               </div>
-              <Switch
-                checked={teamsAutoNotify}
-                onCheckedChange={setTeamsAutoNotify}
-                disabled={!isTeamsConfigured}
-              />
-            </div>
 
-            <div className="rounded-lg bg-muted/50 p-3 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Status</span>
-                {isTeamsConfigured ? (
-                  <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
-                    <Check className="h-3 w-3 mr-1" />
-                    Konfiguriert
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
-                    <AlertCircle className="h-3 w-3 mr-1" />
-                    Nicht konfiguriert
-                  </Badge>
-                )}
-              </div>
-              {teamsLastSent && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Zuletzt gesendet</span>
-                  <span className="text-xs">{teamsLastSent.toLocaleTimeString('de-CH')}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Button
-                variant="outline"
-                onClick={testTeamsWebhook}
-                disabled={!isTeamsConfigured || isTeamsTesting}
-                className="w-full gap-2 border-dashed"
-              >
-                {isTeamsTesting ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" />Teste Webhook...</>
-                ) : (
-                  <><TestTube2 className="h-4 w-4" />Webhook testen</>
-                )}
-              </Button>
-              <Button
-                onClick={sendTeamsNotification}
-                disabled={!isTeamsConfigured || isTeamsSending || swissTargets.length === 0}
-                className="gap-2"
-              >
-                {isTeamsSending ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" />Senden...</>
-                ) : (
-                  <><Send className="h-4 w-4" />Jetzt senden ({swissTargets.length} Targets)</>
-                )}
-              </Button>
-            </div>
-          </TabsContent>
-
-          {/* Telegram Tab */}
-          <TabsContent value="telegram" className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <Label htmlFor="telegram-bot-token">Bot Token</Label>
-              <Input
-                id="telegram-bot-token"
-                type="password"
-                placeholder="z.B. 8502308757:AAFTrGz..."
-                value={telegramBotToken}
-                onChange={(e) => setTelegramBotToken(e.target.value)}
-                className="font-mono text-sm"
-              />
-              <p className="text-xs text-muted-foreground">
-                API Token vom BotFather
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="telegram-bot-name">Bot Name (optional)</Label>
-              <Input
-                id="telegram-bot-name"
-                type="text"
-                placeholder="z.B. @gapMon_bot"
-                value={telegramBotName}
-                onChange={(e) => setTelegramBotName(e.target.value)}
-                className="font-mono text-sm"
-              />
-              <p className="text-xs text-muted-foreground">
-                Name des Bots zur Referenz
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="telegram-chat-id">Chat ID</Label>
-              <Input
-                id="telegram-chat-id"
-                type="text"
-                placeholder="z.B. 7745296423"
-                value={telegramChatId}
-                onChange={(e) => setTelegramChatId(e.target.value)}
-                className="font-mono text-sm"
-              />
-              <p className="text-xs text-muted-foreground">
-                Ihre Telegram Chat ID{telegramBotName && ` • Bot: ${telegramBotName}`}
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div className="space-y-0.5">
-                <Label className="text-sm font-medium">Auto-Benachrichtigung</Label>
+              <div className="space-y-2">
+                <Label htmlFor="telegram-bot-name">Bot Name (optional)</Label>
+                <Input
+                  id="telegram-bot-name"
+                  type="text"
+                  placeholder="z.B. @gapMon_bot"
+                  value={telegramBotName}
+                  onChange={(e) => setTelegramBotName(e.target.value)}
+                  className="font-mono text-sm"
+                />
                 <p className="text-xs text-muted-foreground">
-                  Automatisch benachrichtigen bei neuen Targets
+                  Name des Bots zur Referenz
                 </p>
               </div>
-              <Switch
-                checked={telegramAutoNotify}
-                onCheckedChange={setTelegramAutoNotify}
-                disabled={!isTelegramConfigured}
-              />
-            </div>
 
-            <div className="rounded-lg bg-muted/50 p-3 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Status</span>
-                {isTelegramConfigured ? (
-                  <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
-                    <Check className="h-3 w-3 mr-1" />
-                    Konfiguriert
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
-                    <AlertCircle className="h-3 w-3 mr-1" />
-                    Nicht konfiguriert
-                  </Badge>
+              <div className="space-y-2">
+                <Label htmlFor="telegram-chat-id">Chat ID</Label>
+                <Input
+                  id="telegram-chat-id"
+                  type="text"
+                  placeholder="z.B. 7745296423"
+                  value={telegramChatId}
+                  onChange={(e) => setTelegramChatId(e.target.value)}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Ihre Telegram Chat ID{telegramBotName && ` • Bot: ${telegramBotName}`}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium">Auto-Benachrichtigung</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Automatisch benachrichtigen bei neuen Targets
+                  </p>
+                </div>
+                <Switch
+                  checked={telegramAutoNotify}
+                  onCheckedChange={(checked) => {
+                    setTelegramAutoNotify(checked);
+                    saveSetting('telegram_auto_notify', String(checked), checked);
+                  }}
+                  disabled={!isTelegramConfigured}
+                />
+              </div>
+
+              <div className="rounded-lg bg-muted/50 p-3 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Status</span>
+                  {isTelegramConfigured ? (
+                    <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
+                      <Check className="h-3 w-3 mr-1" />
+                      Konfiguriert
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
+                      <AlertCircle className="h-3 w-3 mr-1" />
+                      Nicht konfiguriert
+                    </Badge>
+                  )}
+                </div>
+                {telegramLastSent && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Zuletzt gesendet</span>
+                    <span className="text-xs">{telegramLastSent.toLocaleTimeString('de-CH')}</span>
+                  </div>
                 )}
               </div>
-              {telegramLastSent && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Zuletzt gesendet</span>
-                  <span className="text-xs">{telegramLastSent.toLocaleTimeString('de-CH')}</span>
-                </div>
-              )}
-            </div>
 
-            <div className="flex flex-col gap-2">
-              <Button
-                variant="outline"
-                onClick={testTelegramWebhook}
-                disabled={!isTelegramConfigured || isTelegramTesting}
-                className="w-full gap-2 border-dashed"
-              >
-                {isTelegramTesting ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" />Teste Telegram...</>
-                ) : (
-                  <><TestTube2 className="h-4 w-4" />Telegram testen</>
-                )}
-              </Button>
-              <Button
-                onClick={sendTelegramNotification}
-                disabled={!isTelegramConfigured || isTelegramSending || swissTargets.length === 0}
-                className="gap-2"
-              >
-                {isTelegramSending ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" />Senden...</>
-                ) : (
-                  <><Send className="h-4 w-4" />Jetzt senden ({swissTargets.length} Targets)</>
-                )}
-              </Button>
-            </div>
-          </TabsContent>
-        </Tabs>
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  onClick={testTelegramWebhook}
+                  disabled={!isTelegramConfigured || isTelegramTesting}
+                  className="w-full gap-2 border-dashed"
+                >
+                  {isTelegramTesting ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" />Teste Webhook...</>
+                  ) : (
+                    <><TestTube2 className="h-4 w-4" />Webhook testen</>
+                  )}
+                </Button>
+                <Button
+                  onClick={sendTelegramNotification}
+                  disabled={!isTelegramConfigured || isTelegramSending || swissTargets.length === 0}
+                  className="gap-2"
+                >
+                  {isTelegramSending ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" />Senden...</>
+                  ) : (
+                    <><Send className="h-4 w-4" />Jetzt senden ({swissTargets.length} Targets)</>
+                  )}
+                </Button>
+              </div>
+            </TabsContent>
+          </Tabs>
+        )}
 
-        <div className="flex justify-end pt-4 border-t">
-          <Button variant="outline" onClick={() => setIsOpen(false)}>
-            Schliessen
+        {/* Save Button */}
+        <div className="flex justify-end mt-4 pt-4 border-t">
+          <Button
+            onClick={saveAllSettings}
+            disabled={isSaving || isLoading}
+            className="gap-2"
+          >
+            {isSaving ? (
+              <><Loader2 className="h-4 w-4 animate-spin" />Speichere...</>
+            ) : (
+              <><Database className="h-4 w-4" />Einstellungen speichern</>
+            )}
           </Button>
         </div>
       </DialogContent>
