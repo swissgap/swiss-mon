@@ -31,42 +31,42 @@ function formatTelegramMessage(targets: SwissTarget[], stats: TelegramPayload['s
   const lines: string[] = [];
   
   if (isTest) {
-    lines.push('🧪 *SwissMon Test Notification*');
+    lines.push('🧪 <b>SwissMon Test Notification</b>');
     lines.push('');
-    lines.push('✅ Telegram Webhook ist korrekt konfiguriert\\!');
-    lines.push(`📅 Test gesendet: ${new Date().toLocaleString('de-CH').replace(/[.-]/g, '\\$&')}`);
+    lines.push('✅ Telegram Webhook ist korrekt konfiguriert!');
+    lines.push(`📅 Test gesendet: ${new Date().toLocaleString('de-CH')}`);
     lines.push('');
   } else {
-    lines.push('🚨 *Swiss Target Alert*');
+    lines.push('🚨 <b>Swiss Target Alert</b>');
     lines.push('');
   }
   
-  lines.push('📊 *Statistiken:*');
+  lines.push('📊 <b>Statistiken:</b>');
   lines.push(`   🇨🇭 Swiss Hosts: ${stats.swiss_hosts}`);
-  lines.push(`   🛡️ Admin\\.ch Hosts: ${stats.admin_hosts}`);
+  lines.push(`   🛡️ Admin.ch Hosts: ${stats.admin_hosts}`);
   lines.push(`   📈 Total Requests: ${stats.total_requests}`);
   lines.push('');
   
-  lines.push(isTest ? '🎯 *Sample Targets:*' : '🎯 *Detected Targets:*');
+  lines.push(isTest ? '🎯 <b>Sample Targets:</b>' : '🎯 <b>Detected Targets:</b>');
   
   const displayTargets = targets.slice(0, 10);
   for (const target of displayTargets) {
     const icon = target.is_admin ? '🛡️' : '🇨🇭';
-    const host = target.host.replace(/[.-]/g, '\\$&');
-    const ip = (target.ip || 'N/A').replace(/[.]/g, '\\$&');
+    const host = target.host;
+    const ip = target.ip || 'N/A';
     const port = target.port || 443;
     const type = (target.type || 'HTTP').toUpperCase();
-    lines.push(`${icon} \`${host}\``);
-    lines.push(`   IP: ${ip} \\| Port: ${port} \\| ${type}`);
+    lines.push(`${icon} <code>${host}</code>`);
+    lines.push(`   IP: ${ip} | Port: ${port} | ${type}`);
   }
   
   if (targets.length > 10) {
     lines.push('');
-    lines.push(`_\\.\\.\\. und ${targets.length - 10} weitere Targets_`);
+    lines.push(`<i>...und ${targets.length - 10} weitere Targets</i>`);
   }
   
   lines.push('');
-  lines.push('🔗 [SwissMon Dashboard öffnen](https://swiss-mon.lovable.app)');
+  lines.push('🔗 <a href="https://swiss-mon.lovable.app">SwissMon Dashboard öffnen</a>');
   
   return lines.join('\n');
 }
@@ -118,7 +118,7 @@ serve(async (req) => {
       body: JSON.stringify({
         chat_id: chatId,
         text: message,
-        parse_mode: 'MarkdownV2',
+        parse_mode: 'HTML',
         disable_web_page_preview: false,
       }),
     })

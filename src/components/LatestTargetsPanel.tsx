@@ -11,7 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { NotificationConfig } from './NotificationConfig';
 import { exportTargetsToCSV, formatTimestamp } from '@/lib/csvExport';
 import { useMonitoredTargets } from '@/hooks/useMonitoredTargets';
-
+import { useAutoNotify } from '@/hooks/useAutoNotify';
 interface LatestTarget {
   target_id: string;
   request_id: string;
@@ -89,6 +89,7 @@ export function LatestTargetsPanel() {
   const [activeTab, setActiveTab] = useState<'swiss' | 'all'>('swiss');
 
   const { monitoredTargets, addSwissTargets, isChecking: isMonitorChecking } = useMonitoredTargets();
+  const { notifyNewTargets } = useAutoNotify();
 
   const fetchLatestTargets = useCallback(async () => {
     setLoading(true);
@@ -116,13 +117,23 @@ export function LatestTargetsPanel() {
           first_seen: responseData.fetched_at,
         }));
         addSwissTargets(swissTargetsForMonitoring);
+        
+        // Auto-notify about new Swiss targets
+        const stats = {
+          swiss_hosts: responseData.stats?.swiss_hosts || swissTargetsForMonitoring.length,
+          admin_hosts: responseData.stats?.admin_hosts || swissTargetsForMonitoring.filter((t: { is_admin: boolean }) => t.is_admin).length,
+          total_requests: responseData.stats?.swiss_requests || swissTargetsForMonitoring.length,
+        };
+        
+        // Trigger automatic notification for new targets
+        notifyNewTargets(swissTargetsForMonitoring, stats);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to fetch data');
     } finally {
       setLoading(false);
     }
-  }, [addSwissTargets]);
+  }, [addSwissTargets, notifyNewTargets]);
 
   useEffect(() => {
     fetchLatestTargets();
