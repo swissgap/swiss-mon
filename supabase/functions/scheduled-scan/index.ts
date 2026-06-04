@@ -440,6 +440,26 @@ serve(async (req) => {
 
     console.log(`[${scanTime}] Deduplication: ${newHostsCount} NEW hosts of ${stats.swiss_hosts} total`);
 
+    // Deep DDoS-aware probing for new Swiss targets (latency drift, TLS, fingerprint, DNS consensus)
+    if (newTargets.length > 0) {
+      try {
+        const probeTargets = Array.from(new Map(newTargets.map(t => [t.host, t])).values())
+          .slice(0, 10)
+          .map(t => ({ host: t.host, port: t.port, use_ssl: t.use_ssl }));
+        const probeRes = await fetch(`${supabaseUrl}/functions/v1/deep-probe`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseKey}`,
+          },
+          body: JSON.stringify({ targets: probeTargets, persist: true }),
+        });
+        console.log(`[${scanTime}] Deep-probe triggered for ${probeTargets.length} hosts (status ${probeRes.status})`);
+      } catch (e) {
+        console.error(`[${scanTime}] Deep-probe call failed:`, e);
+      }
+    }
+
     // Initialize notification results
     const notifications = {
       teams_sent: false,

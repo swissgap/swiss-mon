@@ -5,6 +5,7 @@ import { TargetCard } from './TargetCard';
 import { SearchFilter } from './SearchFilter';
 import { CategoryChart } from './CategoryChart';
 import { LatestTargetsPanel } from './LatestTargetsPanel';
+import { AnomalyFeed } from './AnomalyFeed';
 import { Activity, CheckCircle, AlertTriangle, XCircle, Timer } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -54,6 +55,12 @@ export function Dashboard() {
         <section className="space-y-4">
           <LatestTargetsPanel />
         </section>
+
+        {/* DDoS Anomaly Feed */}
+        <section>
+          <AnomalyFeed />
+        </section>
+
 
         {/* Monitored Endpoints Section */}
         <section className="space-y-4">

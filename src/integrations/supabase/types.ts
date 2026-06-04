@@ -68,6 +68,54 @@ export type Database = {
         }
         Relationships: []
       }
+      target_metrics: {
+        Row: {
+          checked_at: string
+          details: Json | null
+          dns_consensus: boolean | null
+          fingerprint: string | null
+          host: string
+          id: string
+          jitter_ms: number | null
+          p50_ms: number | null
+          p95_ms: number | null
+          score: number
+          severity: string
+          status_code: number | null
+          tls_ms: number | null
+        }
+        Insert: {
+          checked_at?: string
+          details?: Json | null
+          dns_consensus?: boolean | null
+          fingerprint?: string | null
+          host: string
+          id?: string
+          jitter_ms?: number | null
+          p50_ms?: number | null
+          p95_ms?: number | null
+          score?: number
+          severity?: string
+          status_code?: number | null
+          tls_ms?: number | null
+        }
+        Update: {
+          checked_at?: string
+          details?: Json | null
+          dns_consensus?: boolean | null
+          fingerprint?: string | null
+          host?: string
+          id?: string
+          jitter_ms?: number | null
+          p50_ms?: number | null
+          p95_ms?: number | null
+          score?: number
+          severity?: string
+          status_code?: number | null
+          tls_ms?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
