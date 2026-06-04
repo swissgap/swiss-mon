@@ -41,6 +41,33 @@ export type Database = {
         }
         Relationships: []
       }
+      notified_hosts: {
+        Row: {
+          first_notified_at: string
+          host: string
+          id: string
+          is_admin: boolean
+          last_seen_at: string
+          notification_count: number
+        }
+        Insert: {
+          first_notified_at?: string
+          host: string
+          id?: string
+          is_admin?: boolean
+          last_seen_at?: string
+          notification_count?: number
+        }
+        Update: {
+          first_notified_at?: string
+          host?: string
+          id?: string
+          is_admin?: boolean
+          last_seen_at?: string
+          notification_count?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

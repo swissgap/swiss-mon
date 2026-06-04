@@ -95,9 +95,9 @@ export function useTargets() {
       return true;
     });
 
-    // Sort by status: offline first, warning second, online last
-    const statusOrder = { offline: 0, warning: 1, online: 2 };
-    return filtered.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+    // Sort: offline -> warning -> online -> unknown
+    const statusOrder: Record<string, number> = { offline: 0, warning: 1, online: 2, unknown: 3 };
+    return filtered.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
   }, [targets, searchQuery, statusFilter, categoryFilter]);
 
   // Statistics

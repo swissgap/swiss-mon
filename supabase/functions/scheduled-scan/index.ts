@@ -410,6 +410,36 @@ serve(async (req) => {
 
     console.log(`[${scanTime}] Scan complete: ${stats.swiss_hosts} Swiss hosts, ${stats.admin_hosts} admin.ch hosts`);
 
+    // Server-side deduplication: filter to only Swiss targets we haven't notified about yet
+    const supabaseClient = createClient(supabaseUrl, supabaseKey);
+    const swissHostsArray = Array.from(uniqueSwissHosts);
+    let newTargets: ParsedTarget[] = swissTargets;
+    let newHostsCount = stats.swiss_hosts;
+
+    if (swissHostsArray.length > 0) {
+      const { data: alreadyNotified } = await supabaseClient
+        .from('notified_hosts')
+        .select('host')
+        .in('host', swissHostsArray);
+
+      const alreadyNotifiedSet = new Set((alreadyNotified || []).map((r: { host: string }) => r.host));
+      newTargets = swissTargets.filter(t => !alreadyNotifiedSet.has(t.host));
+      newHostsCount = new Set(newTargets.map(t => t.host)).size;
+
+      // Update last_seen_at for all currently-seen hosts (upsert pattern)
+      const upserts = swissHostsArray.map(host => ({
+        host,
+        last_seen_at: scanTime,
+        is_admin: uniqueAdminHosts.has(host),
+      }));
+      const { error: upsertErr } = await supabaseClient
+        .from('notified_hosts')
+        .upsert(upserts, { onConflict: 'host', ignoreDuplicates: false });
+      if (upsertErr) console.error(`[${scanTime}] Upsert notified_hosts failed:`, upsertErr);
+    }
+
+    console.log(`[${scanTime}] Deduplication: ${newHostsCount} NEW hosts of ${stats.swiss_hosts} total`);
+
     // Initialize notification results
     const notifications = {
       teams_sent: false,
@@ -418,39 +448,36 @@ serve(async (req) => {
       telegram_error: undefined as string | undefined,
     };
 
-    // Only send notifications if Swiss targets were found
-    if (swissTargets.length > 0) {
-      // Send Teams notification if enabled
+    // Only notify when we have NEW Swiss targets (or when manually triggered)
+    const isManualTrigger = !!(manualWebhookUrl || manualTelegramToken);
+    const targetsForNotification = isManualTrigger ? swissTargets : newTargets;
+    const statsForNotification = isManualTrigger
+      ? stats
+      : {
+          total_requests: newTargets.length,
+          swiss_hosts: newHostsCount,
+          admin_hosts: new Set(newTargets.filter(t => t.is_admin).map(t => t.host)).size,
+        };
+
+    if (targetsForNotification.length > 0) {
       const teamsWebhook = manualWebhookUrl || (settings.teams_auto_notify ? settings.teams_webhook_url : null);
       if (teamsWebhook) {
-        console.log(`[${scanTime}] Sending Teams notification...`);
-        const teamsResult = await sendTeamsNotification(teamsWebhook, swissTargets, stats);
+        console.log(`[${scanTime}] Sending Teams notification for ${targetsForNotification.length} targets...`);
+        const teamsResult = await sendTeamsNotification(teamsWebhook, targetsForNotification, statsForNotification);
         notifications.teams_sent = teamsResult.sent;
         notifications.teams_error = teamsResult.error;
-        
-        if (teamsResult.sent) {
-          console.log(`[${scanTime}] Teams notification sent successfully`);
-        } else {
-          console.error(`[${scanTime}] Teams notification failed: ${teamsResult.error}`);
-        }
       }
 
-      // Send Telegram notification if enabled
       const telegramToken = manualTelegramToken || (settings.telegram_auto_notify ? settings.telegram_bot_token : null);
       const telegramChatId = manualTelegramChatId || (settings.telegram_auto_notify ? settings.telegram_chat_id : null);
-      
       if (telegramToken && telegramChatId) {
-        console.log(`[${scanTime}] Sending Telegram notification...`);
-        const telegramResult = await sendTelegramNotification(telegramToken, telegramChatId, swissTargets, stats);
+        console.log(`[${scanTime}] Sending Telegram notification for ${targetsForNotification.length} targets...`);
+        const telegramResult = await sendTelegramNotification(telegramToken, telegramChatId, targetsForNotification, statsForNotification);
         notifications.telegram_sent = telegramResult.sent;
         notifications.telegram_error = telegramResult.error;
-        
-        if (telegramResult.sent) {
-          console.log(`[${scanTime}] Telegram notification sent successfully`);
-        } else {
-          console.error(`[${scanTime}] Telegram notification failed: ${telegramResult.error}`);
-        }
       }
+    } else {
+      console.log(`[${scanTime}] No new targets — skipping notifications`);
     }
 
     const scanResult: ScanResult = {

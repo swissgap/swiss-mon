@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Radar, RefreshCw, ExternalLink, Globe, Wifi, WifiOff, ShieldCheck, Flag, Download, Clock, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,10 +8,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
-import { NotificationConfig } from './NotificationConfig';
 import { exportTargetsToCSV, formatTimestamp } from '@/lib/csvExport';
 import { useMonitoredTargets } from '@/hooks/useMonitoredTargets';
 import { useAutoNotify } from '@/hooks/useAutoNotify';
+
+const NotificationConfig = lazy(() =>
+  import('./NotificationConfig').then((m) => ({ default: m.NotificationConfig }))
+);
 interface LatestTarget {
   target_id: string;
   request_id: string;
@@ -152,24 +155,22 @@ export function LatestTargetsPanel() {
   const targets = activeTab === 'swiss' ? (data?.swiss_targets || []) : (data?.targets || []);
   const stats = data?.stats;
 
-  // Merge with monitored targets to get real status
-  const targetsWithStatus = targets.map(target => {
-    const monitored = monitoredTargets.find(m => m.host.toLowerCase() === target.host.toLowerCase());
-    return {
-      ...target,
-      status: monitored?.status,
-      lastChecked: monitored?.lastChecked,
-    };
-  });
+  // Merge with monitored targets to get real status (memoized)
+  const monitoredByHost = useMemo(() => {
+    const m = new Map<string, (typeof monitoredTargets)[number]>();
+    for (const t of monitoredTargets) m.set(t.host.toLowerCase(), t);
+    return m;
+  }, [monitoredTargets]);
 
-  // Group targets by host for cleaner display
-  const groupedTargets = targetsWithStatus.reduce((acc, target) => {
-    if (!acc[target.host]) {
-      acc[target.host] = [];
+  const groupedTargets = useMemo(() => {
+    const acc: Record<string, (LatestTarget & { status?: 'online' | 'offline' | 'warning' | 'unknown'; lastChecked?: Date })[]> = {};
+    for (const t of targets) {
+      const monitored = monitoredByHost.get(t.host.toLowerCase());
+      const enriched = { ...t, status: monitored?.status, lastChecked: monitored?.lastChecked };
+      (acc[t.host] ||= []).push(enriched);
     }
-    acc[target.host].push(target);
     return acc;
-  }, {} as Record<string, (LatestTarget & { status?: 'online' | 'offline' | 'warning' | 'unknown'; lastChecked?: Date })[]>);
+  }, [targets, monitoredByHost]);
 
   const uniqueHosts = Object.keys(groupedTargets);
 
@@ -192,22 +193,24 @@ export function LatestTargetsPanel() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <NotificationConfig
-            swissTargets={data?.swiss_targets?.map(t => ({
-              host: t.host,
-              ip: t.ip,
-              type: t.type,
-              method: t.method,
-              port: t.port,
-              use_ssl: t.use_ssl,
-              is_admin: t.is_admin,
-            })) || []}
-            stats={stats ? {
-              swiss_hosts: stats.swiss_hosts,
-              admin_hosts: stats.admin_hosts,
-              total_requests: stats.swiss_requests,
-            } : undefined}
-          />
+          <Suspense fallback={null}>
+            <NotificationConfig
+              swissTargets={data?.swiss_targets?.map(t => ({
+                host: t.host,
+                ip: t.ip,
+                type: t.type,
+                method: t.method,
+                port: t.port,
+                use_ssl: t.use_ssl,
+                is_admin: t.is_admin,
+              })) || []}
+              stats={stats ? {
+                swiss_hosts: stats.swiss_hosts,
+                admin_hosts: stats.admin_hosts,
+                total_requests: stats.swiss_requests,
+              } : undefined}
+            />
+          </Suspense>
           {/* CSV Export Button */}
           <TooltipProvider>
             <Tooltip>

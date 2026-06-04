@@ -35,34 +35,20 @@ export function detectCategory(host: string): string {
   return 'Other';
 }
 
-// Simulate status (in real app, this would come from actual health checks)
-export function simulateStatus(): 'online' | 'offline' | 'warning' {
-  const rand = Math.random();
-  if (rand > 0.15) return 'online';
-  if (rand > 0.05) return 'warning';
-  return 'offline';
-}
-
-// Simulate response time
-export function simulateResponseTime(): number {
-  return Math.floor(Math.random() * 300) + 20;
-}
-
-// Enrich targets with status and category
+// Enrich targets with default status (unknown) and category.
+// Real status is populated later by the check-target-status edge function.
 export function enrichTargets(targets: Target[]): TargetWithStatus[] {
-  // Deduplicate by host (keep first occurrence)
   const seen = new Set<string>();
-  const uniqueTargets = targets.filter(t => {
-    const key = t.host;
-    if (seen.has(key)) return false;
-    seen.add(key);
+  const uniqueTargets = targets.filter((t) => {
+    if (seen.has(t.host)) return false;
+    seen.add(t.host);
     return true;
   });
 
-  return uniqueTargets.map(target => ({
+  return uniqueTargets.map((target) => ({
     ...target,
-    status: simulateStatus(),
-    responseTime: simulateResponseTime(),
+    status: 'unknown' as const,
+    responseTime: undefined,
     lastChecked: new Date(),
     category: detectCategory(target.host),
   }));
