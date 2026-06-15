@@ -101,7 +101,7 @@ serve(async (req) => {
   for (const url of sourceUrls) {
     try {
       const ctrl = new AbortController()
-      const to = setTimeout(() => ctrl.abort(), 8000)
+      const to = setTimeout(() => ctrl.abort(), 25000)
       const response = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; SwissMon/1.0; +https://swiss-mon.lovable.app)',
