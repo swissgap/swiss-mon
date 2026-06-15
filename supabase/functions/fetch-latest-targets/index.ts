@@ -83,20 +83,85 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders })
   }
 
-  try {
-    const targetUrl = 'https://witha.name/data/last.json'
-    
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': 'SwissMon/1.0 (+https://github.com/)',
-      },
-    })
+  // Try multiple source URLs (origin + public mirrors/proxies) to survive
+  // upstream rejecting Supabase edge IPs ("Connection refused").
+  const sourceUrls = [
+    'https://witha.name/data/last.json',
+    'https://www.witha.name/data/last.json',
+    'http://witha.name/data/last.json',
+    // Public read-only CORS/HTTP mirrors as fallback
+    'https://r.jina.ai/https://witha.name/data/last.json',
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://witha.name/data/last.json'),
+  ]
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`)
+  let rawData: unknown = null
+  let lastError = ''
+  let usedSource = ''
+
+  for (const url of sourceUrls) {
+    try {
+      const ctrl = new AbortController()
+      const to = setTimeout(() => ctrl.abort(), 8000)
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; SwissMon/1.0; +https://swiss-mon.lovable.app)',
+          'Accept': 'application/json, text/plain, */*',
+        },
+        signal: ctrl.signal,
+      })
+      clearTimeout(to)
+
+      if (!response.ok) {
+        lastError = `HTTP ${response.status} from ${url}`
+        await response.text().catch(() => '')
+        continue
+      }
+
+      const text = await response.text()
+      try {
+        rawData = JSON.parse(text)
+      } catch {
+        // r.jina.ai may wrap content; try to find JSON
+        const match = text.match(/\[[\s\S]*\]|\{[\s\S]*\}/)
+        if (!match) {
+          lastError = `Non-JSON response from ${url}`
+          continue
+        }
+        rawData = JSON.parse(match[0])
+      }
+      usedSource = url
+      break
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e)
+      continue
     }
+  }
 
-    const rawData = await response.json()
+  if (rawData === null) {
+    console.error('All source fetches failed. Last error:', lastError)
+    // Return 200 with empty payload so the client treats it as "no new data"
+    // instead of throwing an Edge Function 500.
+    return new Response(
+      JSON.stringify({
+        warning: `Upstream source unavailable: ${lastError}`,
+        targets: [],
+        swiss_targets: [],
+        other_targets: [],
+        stats: {
+          total_requests: 0,
+          total_hosts: 0,
+          swiss_requests: 0,
+          swiss_hosts: 0,
+          admin_requests: 0,
+          admin_hosts: 0,
+        },
+        fetched_at: new Date().toISOString(),
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+
+  try {
     const rawTargets = normalizeTargets(rawData)
 
     const allTargets: ParsedTarget[] = []
@@ -108,9 +173,6 @@ serve(async (req) => {
       const { host, port: parsedPort, use_ssl: parsedSsl } = parseHost(entryUrl)
       if (!host) continue
 
-      const isSwiss = isSwissTarget(host)
-      const isAdmin = isAdminTarget(host)
-
       allTargets.push({
         target_id: entry.target_id || `target-${allTargets.length}`,
         request_id: entry.request_id || `req-${allTargets.length}`,
@@ -121,8 +183,8 @@ serve(async (req) => {
         port: entry.port || parsedPort,
         use_ssl: entry.use_ssl ?? parsedSsl,
         path: entry.path || '/',
-        is_swiss: isSwiss,
-        is_admin: isAdmin
+        is_swiss: isSwissTarget(host),
+        is_admin: isAdminTarget(host),
       })
     }
 
@@ -138,41 +200,39 @@ serve(async (req) => {
       admin_hosts: new Set(swissTargets.filter(t => t.is_admin).map(t => t.host)).size,
     }
 
-    return new Response(JSON.stringify({
-      targets: allTargets,
-      swiss_targets: swissTargets,
-      other_targets: otherTargets,
-      stats,
-      fetched_at: new Date().toISOString()
-    }), {
-      headers: { 
-        ...corsHeaders, 
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=60',
-      },
-    })
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch targets'
-    console.error('Error fetching latest targets:', errorMessage)
     return new Response(
-      JSON.stringify({ 
-        error: errorMessage,
+      JSON.stringify({
+        targets: allTargets,
+        swiss_targets: swissTargets,
+        other_targets: otherTargets,
+        stats,
+        source: usedSource,
+        fetched_at: new Date().toISOString(),
+      }),
+      {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=60',
+        },
+      }
+    )
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to parse targets'
+    console.error('Parse error:', errorMessage)
+    return new Response(
+      JSON.stringify({
+        warning: errorMessage,
         targets: [],
         swiss_targets: [],
         other_targets: [],
         stats: {
-          total_requests: 0,
-          total_hosts: 0,
-          swiss_requests: 0,
-          swiss_hosts: 0,
-          admin_requests: 0,
-          admin_hosts: 0
-        }
+          total_requests: 0, total_hosts: 0,
+          swiss_requests: 0, swiss_hosts: 0,
+          admin_requests: 0, admin_hosts: 0,
+        },
       }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
 })
