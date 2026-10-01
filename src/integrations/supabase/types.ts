@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      monitored_targets: {
+        Row: {
+          first_seen: string
+          host: string
+          id: string
+          ip: string | null
+          is_admin: boolean
+          last_attacked: string
+          last_checked: string | null
+          method: string | null
+          port: number
+          response_time: number | null
+          status: string
+          status_code: number | null
+          type: string | null
+          use_ssl: boolean
+        }
+        Insert: {
+          first_seen?: string
+          host: string
+          id?: string
+          ip?: string | null
+          is_admin?: boolean
+          last_attacked?: string
+          last_checked?: string | null
+          method?: string | null
+          port?: number
+          response_time?: number | null
+          status?: string
+          status_code?: number | null
+          type?: string | null
+          use_ssl?: boolean
+        }
+        Update: {
+          first_seen?: string
+          host?: string
+          id?: string
+          ip?: string | null
+          is_admin?: boolean
+          last_attacked?: string
+          last_checked?: string | null
+          method?: string | null
+          port?: number
+          response_time?: number | null
+          status?: string
+          status_code?: number | null
+          type?: string | null
+          use_ssl?: boolean
+        }
+        Relationships: []
+      }
       notification_settings: {
         Row: {
           created_at: string
@@ -65,6 +116,27 @@ export type Database = {
           is_admin?: boolean
           last_seen_at?: string
           notification_count?: number
+        }
+        Relationships: []
+      }
+      scan_snapshots: {
+        Row: {
+          fetched_at: string
+          id: string
+          payload: Json
+          source: string | null
+        }
+        Insert: {
+          fetched_at?: string
+          id?: string
+          payload: Json
+          source?: string | null
+        }
+        Update: {
+          fetched_at?: string
+          id?: string
+          payload?: Json
+          source?: string | null
         }
         Relationships: []
       }
