@@ -1,4 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "npm:@supabase/supabase-js@2"
+
+const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -139,23 +142,19 @@ serve(async (req) => {
 
   if (rawData === null) {
     console.error('All source fetches failed. Last error:', lastError)
-    // Return 200 with empty payload so the client treats it as "no new data"
-    // instead of throwing an Edge Function 500.
+    // Serve the last successful scan instead of an empty list
+    const { data: snap } = await db.from('scan_snapshots').select('payload, fetched_at').order('fetched_at', { ascending: false }).limit(1).maybeSingle()
+    const base = snap?.payload ?? {
+      targets: [], swiss_targets: [], other_targets: [],
+      stats: { total_requests: 0, total_hosts: 0, swiss_requests: 0, swiss_hosts: 0, admin_requests: 0, admin_hosts: 0 },
+    }
     return new Response(
       JSON.stringify({
-        warning: `Upstream source unavailable: ${lastError}`,
-        targets: [],
-        swiss_targets: [],
-        other_targets: [],
-        stats: {
-          total_requests: 0,
-          total_hosts: 0,
-          swiss_requests: 0,
-          swiss_hosts: 0,
-          admin_requests: 0,
-          admin_hosts: 0,
-        },
-        fetched_at: new Date().toISOString(),
+        ...base,
+        stale: true,
+        cached_at: snap?.fetched_at ?? null,
+        warning: `Quelle nicht erreichbar: ${lastError}`,
+        fetched_at: snap?.fetched_at ?? new Date().toISOString(),
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
@@ -200,6 +199,30 @@ serve(async (req) => {
       admin_hosts: new Set(swissTargets.filter(t => t.is_admin).map(t => t.host)).size,
     }
 
+    const fetchedAt = new Date().toISOString()
+    const payload = { targets: allTargets, swiss_targets: swissTargets, other_targets: otherTargets, stats, source: usedSource }
+
+    // Persist snapshot (keep last 50) and add Swiss hosts to monitoring
+    try {
+      await db.from('scan_snapshots').insert({ payload, source: usedSource, fetched_at: fetchedAt })
+      const { data: old } = await db.from('scan_snapshots').select('id').order('fetched_at', { ascending: false }).range(50, 500)
+      if (old?.length) await db.from('scan_snapshots').delete().in('id', old.map((r: { id: string }) => r.id))
+      const uniq = new Map(swissTargets.map(t => [t.host.toLowerCase(), t]))
+      if (uniq.size) {
+        const hosts = Array.from(uniq.keys())
+        const { data: existing } = await db.from('monitored_targets').select('host').in('host', hosts)
+        const known = new Set((existing || []).map((r: { host: string }) => r.host))
+        const fresh = hosts.filter(h => !known.has(h)).map(h => {
+          const t = uniq.get(h)!
+          return { host: h, ip: t.ip, type: t.type, method: t.method, port: t.port, use_ssl: t.use_ssl, is_admin: t.is_admin, first_seen: fetchedAt, last_attacked: fetchedAt }
+        })
+        if (fresh.length) await db.from('monitored_targets').insert(fresh)
+        if (known.size) await db.from('monitored_targets').update({ last_attacked: fetchedAt }).in('host', Array.from(known))
+      }
+    } catch (e) {
+      console.error('Persist failed:', e)
+    }
+
     return new Response(
       JSON.stringify({
         targets: allTargets,
@@ -207,7 +230,7 @@ serve(async (req) => {
         other_targets: otherTargets,
         stats,
         source: usedSource,
-        fetched_at: new Date().toISOString(),
+        fetched_at: fetchedAt,
       }),
       {
         headers: {
