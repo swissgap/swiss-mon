@@ -358,45 +358,21 @@ serve(async (req) => {
       // No body or invalid JSON - that's fine for cron triggers
     }
 
-    // Fetch targets from witha.name
-    const targetUrl = 'https://witha.name/data/last.json';
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': 'SwissMon-Scheduler/1.0 (+https://swiss-mon.lovable.app)',
-      },
+    // Fetch targets through the shared scanner function (handles fallbacks,
+    // snapshots and adding Swiss hosts to monitoring)
+    const fr = await fetch(`${supabaseUrl}/functions/v1/fetch-latest-targets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseKey}` },
+      body: '{}',
     });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+    const fd = await fr.json();
+    if (fd?.stale) {
+      throw new Error(`Upstream unavailable, only cached data: ${fd.warning}`);
     }
-
-    const rawData = await response.json();
-    const rawTargets = normalizeTargets(rawData);
-
-    // Parse and filter targets
-    const allTargets: ParsedTarget[] = [];
-
-    for (const entry of rawTargets) {
-      const entryUrl = entry.target || entry.url || entry.host;
-      if (!entryUrl) continue;
-
-      const { host, port: parsedPort, use_ssl: parsedSsl } = parseHost(entryUrl);
-      if (!host) continue;
-
-      const isSwiss = isSwissTarget(host);
-      const isAdmin = isAdminTarget(host);
-
-      allTargets.push({
-        host,
-        ip: entry.ip || '',
-        type: entry.type || entry.project || 'http',
-        method: entry.method || 'GET',
-        port: entry.port || parsedPort,
-        use_ssl: entry.use_ssl ?? parsedSsl,
-        is_swiss: isSwiss,
-        is_admin: isAdmin
-      });
-    }
+    const allTargets: ParsedTarget[] = (fd?.targets || []).map((t: ParsedTarget) => ({
+      host: t.host, ip: t.ip || '', type: t.type, method: t.method, port: t.port,
+      use_ssl: t.use_ssl, is_swiss: !!t.is_swiss, is_admin: !!t.is_admin,
+    }));
 
     const swissTargets = allTargets.filter(t => t.is_swiss);
     const uniqueSwissHosts = new Set(swissTargets.map(t => t.host));
