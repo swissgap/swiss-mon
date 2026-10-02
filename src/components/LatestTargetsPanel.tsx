@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { exportTargetsToCSV, formatTimestamp } from '@/lib/csvExport';
 import { useMonitoredTargets } from '@/hooks/useMonitoredTargets';
-import { useAutoNotify } from '@/hooks/useAutoNotify';
 
 const NotificationConfig = lazy(() =>
   import('./NotificationConfig').then((m) => ({ default: m.NotificationConfig }))
@@ -46,6 +45,8 @@ interface LatestTargetsResponse {
   other_targets: LatestTarget[];
   stats: ScanStats;
   fetched_at: string;
+  stale?: boolean;
+  warning?: string;
 }
 
 // Status indicator component
@@ -91,52 +92,24 @@ export function LatestTargetsPanel() {
   const [isExpanded, setIsExpanded] = useState(true);
   const [activeTab, setActiveTab] = useState<'swiss' | 'all'>('swiss');
 
-  const { monitoredTargets, addSwissTargets, isChecking: isMonitorChecking } = useMonitoredTargets();
-  const { notifyNewTargets } = useAutoNotify();
+  const { monitoredTargets, reload: reloadMonitored, isChecking: isMonitorChecking } = useMonitoredTargets();
 
   const fetchLatestTargets = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const { data: responseData, error: fetchError } = await supabase.functions.invoke('fetch-latest-targets');
-      
-      if (fetchError) {
-        throw new Error(fetchError.message);
-      }
-      
+      if (fetchError) throw new Error(fetchError.message);
       setData(responseData);
-      setLastFetched(new Date());
-      
-      // Auto-add Swiss targets to monitoring
-      if (responseData?.swiss_targets?.length > 0) {
-        const swissTargetsForMonitoring = responseData.swiss_targets.map((t: LatestTarget) => ({
-          host: t.host,
-          ip: t.ip,
-          type: t.type,
-          method: t.method,
-          port: t.port,
-          use_ssl: t.use_ssl,
-          is_admin: t.is_admin,
-          first_seen: responseData.fetched_at,
-        }));
-        addSwissTargets(swissTargetsForMonitoring);
-        
-        // Auto-notify about new Swiss targets
-        const stats = {
-          swiss_hosts: responseData.stats?.swiss_hosts || swissTargetsForMonitoring.length,
-          admin_hosts: responseData.stats?.admin_hosts || swissTargetsForMonitoring.filter((t: { is_admin: boolean }) => t.is_admin).length,
-          total_requests: responseData.stats?.swiss_requests || swissTargetsForMonitoring.length,
-        };
-        
-        // Trigger automatic notification for new targets
-        notifyNewTargets(swissTargetsForMonitoring, stats);
-      }
+      setLastFetched(responseData?.fetched_at ? new Date(responseData.fetched_at) : new Date());
+      // Server adds new Swiss targets to monitoring and sends alerts itself
+      reloadMonitored();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to fetch data');
     } finally {
       setLoading(false);
     }
-  }, [addSwissTargets, notifyNewTargets]);
+  }, [reloadMonitored]);
 
   useEffect(() => {
     fetchLatestTargets();
@@ -252,6 +225,12 @@ export function LatestTargetsPanel() {
       {isExpanded && (
         <>
           {/* Timestamp Banner */}
+          {data?.stale && (
+            <div className="px-4 py-2 border-b bg-status-warning/10 text-status-warning text-xs flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span>Quelle zurzeit nicht erreichbar. Angezeigt wird der letzte Stand von {lastFetched ? formatTimestamp(lastFetched) : 'unbekannt'}.</span>
+            </div>
+          )}
           {lastFetched && (
             <div className="px-4 py-2 border-b bg-muted/20 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
