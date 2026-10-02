@@ -225,6 +225,12 @@ export function LatestTargetsPanel() {
       {isExpanded && (
         <>
           {/* Timestamp Banner */}
+          {data?.stale && (
+            <div className="px-4 py-2 border-b bg-status-warning/10 text-status-warning text-xs flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span>Quelle zurzeit nicht erreichbar. Angezeigt wird der letzte Stand von {lastFetched ? formatTimestamp(lastFetched) : 'unbekannt'}.</span>
+            </div>
+          )}
           {lastFetched && (
             <div className="px-4 py-2 border-b bg-muted/20 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">

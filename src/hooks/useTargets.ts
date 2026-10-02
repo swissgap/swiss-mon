@@ -3,8 +3,7 @@ import type { Target, TargetWithStatus, StatusFilter } from '@/types/target';
 import { enrichTargets, calculateCategoryStats } from '@/lib/targetUtils';
 import { useRealStatusCheck } from './useRealStatusCheck';
 
-// Storage key for monitored Swiss targets
-const MONITORED_TARGETS_KEY = 'swissmon_monitored_targets';
+import { fetchMonitoredTargets } from './useMonitoredTargets';
 
 export function useTargets() {
   const [targets, setTargets] = useState<TargetWithStatus[]>([]);
@@ -25,26 +24,21 @@ export function useTargets() {
         const data: Target[] = await response.json();
         const enrichedTargets = enrichTargets(data);
         
-        // Merge with monitored targets from localStorage
-        const storedMonitored = localStorage.getItem(MONITORED_TARGETS_KEY);
-        if (storedMonitored) {
-          try {
-            const monitored = JSON.parse(storedMonitored) as TargetWithStatus[];
-            const existingHosts = new Set(enrichedTargets.map(t => t.host.toLowerCase()));
-            
-            // Add new monitored targets that aren't in the historical data
-            for (const mt of monitored) {
-              if (!existingHosts.has(mt.host.toLowerCase())) {
-                enrichedTargets.push({
-                  ...mt,
-                  lastChecked: new Date(mt.lastChecked),
-                });
-              }
+        // Merge with server-side monitored targets (status + newly attacked hosts)
+        try {
+          const monitored = await fetchMonitoredTargets();
+          const byHost = new Map(enrichedTargets.map((t, i) => [t.host.toLowerCase(), i]));
+          for (const mt of monitored) {
+            const i = byHost.get(mt.host.toLowerCase());
+            if (i === undefined) enrichedTargets.push(mt);
+            else if (mt.status !== 'unknown') {
+              enrichedTargets[i] = { ...enrichedTargets[i], status: mt.status, responseTime: mt.responseTime, lastChecked: mt.lastChecked };
             }
-          } catch (e) {
-            console.error('Failed to parse monitored targets:', e);
           }
+        } catch (e) {
+          console.error('Failed to load monitored targets:', e);
         }
+
         
         setTargets(enrichedTargets);
       } catch (err) {
